@@ -1,5 +1,4 @@
 from dotenv import load_dotenv
-load_dotenv()
 import streamlit as st
 import os
 import io
@@ -8,89 +7,88 @@ from PIL import Image
 from pdf2image import convert_from_bytes
 import google.generativeai as genai
 
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+# Load environment variables
+load_dotenv()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-def get_gemini_response(input,pdf_content,prompt):
-    model=genai.GenerativeModel('gemini-2.0-flash')
-    response=model.generate_content([input,pdf_content[0],prompt])
-    return response.text
+# Check if API key is set
+if not GOOGLE_API_KEY:
+    st.error("Google API key not found. Please set it in the environment variables.")
+else:
+    genai.configure(api_key=GOOGLE_API_KEY)
+
+def get_gemini_response(input_prompt, pdf_content):
+    try:
+        model = genai.GenerativeModel('gemini-1.5-pro-latest')
+        response = model.generate_content([input_prompt, pdf_content[0]])
+        return response.text
+    except Exception as e:
+        return f"Error generating response: {str(e)}"
 
 def input_pdf_setup(uploaded_file):
-    images=convert_from_bytes(uploaded_file.read(),poppler_path=r'C:\Program Files\poppler\Library\bin')
+    try:
+        images = convert_from_bytes(uploaded_file.read())  # Removed poppler_path
+        first_page = images[0]
 
-    first_page=images[0]
+        # Convert image to base64
+        img_byte_arr = io.BytesIO()
+        first_page.save(img_byte_arr, format='JPEG')
+        img_byte_arr = img_byte_arr.getvalue()
 
-    img_byte_arr=io.BytesIO()
-    first_page.save(img_byte_arr,format='JPEG')
-    img_byte_arr=img_byte_arr.getvalue()
-
-    pdf_parts=[
-        {
-            "mime_type":"image/jpeg",
+        pdf_parts = [{
+            "mime_type": "image/jpeg",
             "data": base64.b64encode(img_byte_arr).decode()
-        }
-    ]
-    return pdf_parts
+        }]
+        return pdf_parts
+    except Exception as e:
+        st.error(f"Error processing PDF: {str(e)}")
+        return None
 
+# Streamlit UI
+st.set_page_config(page_title="ATS Resume Checker")
+st.title("📄 ATS Resume Fit Checker")
+st.write("Upload your resume and compare it with a job description to analyze fit.")
 
-st.set_page_config(page_title="ATS Resume expert")
-st.header("ATS TRACKER")
-input_text=st.text_area("Job Description:", key="input")
-uploaded_file=st.file_uploader("Upload your resume",type=['pdf'])
+input_text = st.text_area("📌 Paste Job Description:", key="job_desc")
+uploaded_file = st.file_uploader("📂 Upload your Resume (PDF only)", type=['pdf'])
 
 if uploaded_file is not None:
-    st.write("Resume uploaded successfully")
+    st.success("✅ Resume uploaded successfully")
 
-submit1=st.button("Tell me about the resume")
-submit2=st.button("How can i improve my skills")
-submit3=st.button("What are the keywords that are missing")
-submit4=st.button("Percentage match")
-input_prompt1="""
-The resume is a good fit for the job. It has the required skills and experience.
-You are an experienced ML developer so select profiles with a strong ML and give description about their projects.
-"""
-input_prompt2="""To meet the resume ceiling you can improve ML fundamentals and deep learning concepts.
-"""
+# Define Prompts
+input_prompts = {
+    "submit1": "Analyze this resume and provide a summary of the candidate's qualifications for the given job description.",
+    "submit2": "Suggest improvements to align the resume with the job description.",
+    "submit3": "List missing keywords in this resume compared to the job description.",
+    "submit4": "Provide a percentage match score between the resume and job description."
+}
 
-input_prompt3="""
-ML engineer
-Data scientist
-Deep learning engineer
+# Buttons
+col1, col2 = st.columns(2)
+col3, col4 = st.columns(2)
 
-"""
+with col1:
+    submit1 = st.button("📌 Resume Summary")
+with col2:
+    submit2 = st.button("📈 Improvement Suggestions")
+with col3:
+    submit3 = st.button("🔑 Missing Keywords")
+with col4:
+    submit4 = st.button("📊 Match Percentage")
 
-input_prompt4="""You are a ATS scanner and you are looking for a resume that has a 90% match with the job description.
-"""
+# Handle Button Clicks
+if any([submit1, submit2, submit3, submit4]):
+    if uploaded_file and input_text:
+        pdf_content = input_pdf_setup(uploaded_file)
+        if pdf_content:
+            selected_prompt = input_prompts["submit1"] if submit1 else \
+                              input_prompts["submit2"] if submit2 else \
+                              input_prompts["submit3"] if submit3 else \
+                              input_prompts["submit4"]
 
-if submit1:
-    if uploaded_file is not None:
-        pdf_content=input_pdf_setup(uploaded_file)
-        response=get_gemini_response(input_prompt1,pdf_content,input_prompt1)
-        st.subheader("The response is:")
-        st.write(response)
+            response = get_gemini_response(selected_prompt, pdf_content)
+            st.subheader("📌 AI Response:")
+            st.write(response)
     else:
-        st.write("Please upload the resume")
-elif submit2:
-    if uploaded_file is not None:
-        pdf_content=input_pdf_setup(uploaded_file)
-        response=get_gemini_response(input_prompt2,pdf_content,input_prompt2)
-        st.subheader("The response is:")
-        st.write(response)
-    else:
-        st.write("Please upload the resume")
-elif submit3:
-    if uploaded_file is not None:
-        pdf_content=input_pdf_setup(uploaded_file)
-        response=get_gemini_response(input_prompt3,pdf_content,input_prompt3)
-        st.subheader("The response is:")
-        st.write(response)
-    else:
-        st.write("Please upload the resume")
-elif submit4:   
-    if uploaded_file is not None:
-        pdf_content=input_pdf_setup(uploaded_file)
-        response=get_gemini_response(input_prompt4,pdf_content,input_prompt4)
-        st.subheader("The response is:")
-        st.write(response)
-    else:
-        st.write("Please upload the resume")
+        st.warning("⚠️ Please upload a resume and provide a job description.")
+
