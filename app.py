@@ -3,8 +3,7 @@ import streamlit as st
 import os
 import io
 import base64
-from PIL import Image
-from pdf2image import convert_from_bytes
+import pdfplumber  # Alternative to pdf2image
 import google.generativeai as genai
 
 # Load environment variables
@@ -13,36 +12,30 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # Check if API key is set
 if not GOOGLE_API_KEY:
-    st.error("Google API key not found. Please set it in the environment variables.")
+    st.error("❌ Google API key not found. Please set it in the environment variables.")
 else:
     genai.configure(api_key=GOOGLE_API_KEY)
 
-def get_gemini_response(input_prompt, pdf_content):
+# Function to extract text from PDF
+def extract_text_from_pdf(uploaded_file):
+    try:
+        with pdfplumber.open(uploaded_file) as pdf:
+            text = ""
+            for page in pdf.pages:
+                text += page.extract_text() + "\n"
+        return text if text else "No text found in the PDF."
+    except Exception as e:
+        st.error(f"❌ Error processing PDF: {str(e)}")
+        return None
+
+# Function to get AI response
+def get_gemini_response(input_prompt, resume_text):
     try:
         model = genai.GenerativeModel('gemini-1.5-pro-latest')
-        response = model.generate_content([input_prompt, pdf_content[0]])
+        response = model.generate_content([input_prompt, resume_text])
         return response.text
     except Exception as e:
-        return f"Error generating response: {str(e)}"
-
-def input_pdf_setup(uploaded_file):
-    try:
-        images = convert_from_bytes(uploaded_file.read())  # Removed poppler_path
-        first_page = images[0]
-
-        # Convert image to base64
-        img_byte_arr = io.BytesIO()
-        first_page.save(img_byte_arr, format='JPEG')
-        img_byte_arr = img_byte_arr.getvalue()
-
-        pdf_parts = [{
-            "mime_type": "image/jpeg",
-            "data": base64.b64encode(img_byte_arr).decode()
-        }]
-        return pdf_parts
-    except Exception as e:
-        st.error(f"Error processing PDF: {str(e)}")
-        return None
+        return f"❌ Error generating response: {str(e)}"
 
 # Streamlit UI
 st.set_page_config(page_title="ATS Resume Checker")
@@ -79,16 +72,17 @@ with col4:
 # Handle Button Clicks
 if any([submit1, submit2, submit3, submit4]):
     if uploaded_file and input_text:
-        pdf_content = input_pdf_setup(uploaded_file)
-        if pdf_content:
+        resume_text = extract_text_from_pdf(uploaded_file)
+        if resume_text:
             selected_prompt = input_prompts["submit1"] if submit1 else \
                               input_prompts["submit2"] if submit2 else \
                               input_prompts["submit3"] if submit3 else \
                               input_prompts["submit4"]
 
-            response = get_gemini_response(selected_prompt, pdf_content)
+            response = get_gemini_response(selected_prompt, resume_text)
             st.subheader("📌 AI Response:")
             st.write(response)
     else:
         st.warning("⚠️ Please upload a resume and provide a job description.")
+
 
